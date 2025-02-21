@@ -1,98 +1,122 @@
-import { useEffect, useState } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
+import  { useEffect, useState } from 'react';
+import ReactECharts from 'echarts-for-react';
 
 function App() {
   const [data, setData] = useState([]);
-  const [filter, setFilter] = useState('seconds'); // 'seconds', 'minutes', 'hours'
+  const [timeFilter, setTimeFilter] = useState('60s');
 
   useEffect(() => {
-    const socket = new WebSocket('ws://localhost:8080'); // Your WebSocket server URL
+    const socket = new WebSocket('ws://localhost:8080'); // Replace with your WebSocket URL
 
-    socket.onopen = () => console.log('✅ WebSocket connected');
     socket.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      const newPoint = {
-        timestamp: message.timestamp,
-        time: new Date(message.timestamp).toLocaleTimeString(),
-        minute: new Date(message.timestamp).toLocaleTimeString([], { minute: '2-digit', second: '2-digit' }),
-        hour: new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        value: parseFloat(message.value),
-      };
-
-      setData((prev) => {
-        const updatedData = [...prev, newPoint];
-
-        // Optional: Limit total data points to prevent memory overflow
-        return updatedData.slice(-5000);
-      });
+      const newDataPoint = JSON.parse(event.data);
+      newDataPoint.timestamp = new Date().getTime();
+      setData((prevData) => [...prevData, newDataPoint]);
     };
-
-    socket.onerror = (error) => console.error('❌ WebSocket error:', error);
-    socket.onclose = () => console.log('❌ WebSocket disconnected');
 
     return () => socket.close();
   }, []);
 
-  // Filter data based on selected interval
-  const getFilteredData = () => {
-    const now = new Date();
-    switch (filter) {
-      case 'seconds':
-        return data.slice(-60);
-      case 'minutes':
-        const last60Minutes = now.getTime() - 60 * 60 * 1000;
-        return aggregateData(data, 'minute', last60Minutes);
-      case 'hours':
-        const last12Hours = now.getTime() - 12 * 60 * 60 * 1000;
-        return aggregateData(data, 'hour', last12Hours);
-      default:
-        return data;
-    }
-  };
+  const filteredData = data.filter((d) => {
+    const now = Date.now();
+    const timeDiff = (now - d.timestamp) / 1000;
 
-  // Helper function to aggregate data by time unit (minute or hour)
-  const aggregateData = (data, timeKey, threshold) => {
-    const filtered = data.filter((d) => new Date(d.timestamp).getTime() > threshold);
-    const grouped = filtered.reduce((acc, item) => {
-      if (!acc[item[timeKey]]) {
-        acc[item[timeKey]] = { time: item[timeKey], value: item.value, count: 1 };
-      } else {
-        acc[item[timeKey]].value += item.value;
-        acc[item[timeKey]].count += 1;
-      }
-      return acc;
-    }, {});
+    if (timeFilter === '60s') return timeDiff <= 60;
+    if (timeFilter === '60m') return timeDiff <= 3600;
+    if (timeFilter === '12h') return timeDiff <= 43200;
 
-    return Object.values(grouped).map((item) => ({
-      time: item.time,
-      value: item.value / item.count, // Average value per time unit
-    }));
-  };
+    return true;
+  });
+
+  const getOption = () => ({
+    title: {
+      text: 'Live Data Chart',
+    },
+    tooltip: {
+      trigger: 'axis',
+    },
+    legend: {
+      data: ['Line Speed', 'Capacitance', 'RPM' , 'cold OD Average', 'Hot OD Average' , 'masterRatio' , 'screwRPM', 'coldDiameterX', 'coldDiameterY'],
+    },
+    xAxis: {
+      type: 'category',
+      data: filteredData.map((d) => new Date(d.timestamp).toLocaleTimeString()),
+    },
+    yAxis: {
+      type: 'value',
+    },
+    dataZoom: [
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        start: 0,
+        end: 100,
+      },
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        start: 0,
+        end: 100,
+      },
+    ],
+    series: [
+      {
+        name: 'Line Speed',
+        type: 'line',
+        data: filteredData.map((d) => d.lineSpeed),
+      },
+      {
+        name: 'Capacitance',
+        type: 'line',
+        data: filteredData.map((d) => d.capacitance),
+      },
+      {
+        name: 'RPM',
+        type: 'line',
+        data: filteredData.map((d) => d.screwRPM),
+      },
+      
+      {
+        name: 'cold OD Average',
+        type: 'line',
+        data: filteredData.map((d) => d.coldODAverage),
+      },
+      {
+        name: 'Hot OD Average',
+        type: 'line',
+        data: filteredData.map((d) => d.hotODAverage),
+      },
+      {
+        name: 'masterRatio',
+        type: 'line',
+        data: filteredData.map((d) => d.masterRatio),
+      },
+      {
+        name: 'screwRPM',
+        type: 'line',
+        data: filteredData.map((d) => d.screwRPM),
+      },
+      {
+        name: 'coldDiameterX',
+        type: 'line',
+        data: filteredData.map((d) => d.coldDiameterY),
+      },
+      {
+        name: 'coldDiameterY',
+        type: 'line',
+        data: filteredData.map((d) => d.coldDiameterY),
+      },
+    ],
+  });
 
   return (
-    <div style={{ width: '100%', height: '500px', padding: '20px' }}>
-      <h1 className="text-xl font-bold mb-4">Real-Time Data Chart (WebSocket + Filter)</h1>
-
-      {/* Dropdown Filter */}
-      <div style={{ marginBottom: '10px' }}>
-        <label htmlFor="filter">View data by: </label>
-        <select id="filter" value={filter} onChange={(e) => setFilter(e.target.value)}>
-          <option value="seconds">Last 60 Seconds</option>
-          <option value="minutes">Last 60 Minutes (Averaged per Minute)</option>
-          <option value="hours">Last 12 Hours (Averaged per Hour)</option>
-        </select>
+    <div>
+      <div>
+        <button onClick={() => setTimeFilter('60s')}>Last 60s</button>
+        <button onClick={() => setTimeFilter('60m')}>Last 60m</button>
+        <button onClick={() => setTimeFilter('12h')}>Last 12h</button>
       </div>
-
-      {/* Line Chart */}
-      <ResponsiveContainer width="100%" height={400}>
-        <LineChart data={getFilteredData()}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="time" />
-          <YAxis />
-          <Tooltip />
-          <Line type="monotone" dataKey="value" stroke="#8884d8" />
-        </LineChart>
-      </ResponsiveContainer>
+      <ReactECharts option={getOption()} style={{ height: '500px' }} />
     </div>
   );
 }
